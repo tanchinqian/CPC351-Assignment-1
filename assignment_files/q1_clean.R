@@ -140,8 +140,8 @@ build_q1_inspection_table <- function(registrations) {
   rownames(parts) <- NULL
   parts$id_num    <- suppressWarnings(as.integer(parts$digits))
   parts$clean     <- normalize_q1_student_ids(parts$raw)$clean      # same rule as the pipeline
-  parts$changed   <- parts$raw != parts$clean                       # TRUE = text rewritten
-  parts$duplicate <- duplicated(parts[, c("course", "clean")])      # repeated ID in a course
+  parts$changed   <- !is.na(parts$clean) & parts$raw != parts$clean # TRUE = text rewritten
+  parts$duplicate <- !is.na(parts$clean) & duplicated(parts[, c("course", "clean")])  # repeated ID in a course
   parts
 }
 
@@ -202,12 +202,12 @@ if (sys.nframe() == 0L) {
   print(as.data.frame(table(digits_in_id = inspection$digit_len), responseName = "lines"))  # 2 digits = missing leading zero
   cat("\nLines already in NAME### form (FALSE) and lines rewritten (TRUE):\n")
   print(table(inspection$changed))                      # TRUE = text rewritten
-  duplicate_rows <- inspection$duplicate |
-    duplicated(inspection[, c("course", "clean")], fromLast = TRUE)
+  duplicate_rows <- !is.na(inspection$clean) &
+    (inspection$duplicate | duplicated(inspection[, c("course", "clean")], fromLast = TRUE))
   cat("\nDuplicate registrations within a course (both copies shown):\n")
   print(inspection[duplicate_rows, c("course", "raw", "clean")])   # both copies shown
   cat("\nLowest and highest student number found:\n")
-  print(range(inspection$id_num))                       # ID range
+  print(range(inspection$id_num, na.rm = TRUE))         # ID range
   ids_all <- sort(unique(inspection$id_num))
   cat("\nNumbers from 1 to the highest ID that appear in no course (integer(0) = none):\n")
   print(setdiff(seq_len(max(ids_all)), ids_all))        # numbers in no course (a gap is not an error)
