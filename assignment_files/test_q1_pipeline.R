@@ -111,18 +111,47 @@ test_q1_pipeline <- function() {
     validation_csv$back_to_back_conflicts == 0L,
     validation_csv$capacity_violations == 0L
   )
-  # The console must display the same tables and conclusions as the CSV files.
+  # Each displayed period must match the bookings in the exported timetable.
   console_text <- paste(console, collapse = "\n")
-  for (table in list(initial_csv, updated_csv)) {
-    printed_table <- paste(capture.output(print(table, row.names = FALSE)), collapse = "\n")
-    stopifnot(grepl(printed_table, console_text, fixed = TRUE))
+  section_starts <- grep("^Q1\\([cd]\\):", console)
+  stopifnot(length(section_starts) == 2L)
+  tables <- list(initial_csv, updated_csv)
+  for (part in 1:2) {
+    section_end <- if (part == 1L) section_starts[[2L]] - 1L else length(console)
+    section <- console[seq.int(section_starts[[part]], section_end)]
+    displayed_rows <- section[grepl("^\\s*[0-9]+\\s+(Morning|Afternoon)\\s+", section)]
+    table <- tables[[part]]
+    periods <- unique(table[c("day", "period")])
+    stopifnot(length(displayed_rows) == nrow(periods),
+              any(grepl("Venue 1 (40 seats)", section, fixed = TRUE)),
+              any(grepl("Venue 2 (70 seats)", section, fixed = TRUE)))
+
+    for (i in seq_len(nrow(periods))) {
+      bookings <- table[table$day == periods$day[[i]] &
+                          table$period == periods$period[[i]], ]
+      cells <- c("-", "-")
+      for (room in 1:2) {
+        exam <- bookings[bookings$venue == paste("Venue", room), ]
+        if (nrow(exam) == 1L) {
+          cells[[room]] <- paste0(exam$course, " (", exam$students, "), slot ", exam$slot)
+        }
+      }
+      expected_row <- paste(periods$day[[i]], periods$period[[i]], cells[[1L]], cells[[2L]])
+      actual_row <- trimws(gsub("[[:space:]]+", " ", displayed_rows[[i]]))
+      stopifnot(identical(actual_row, expected_row))
+    }
   }
   stopifnot(
-    grepl("Q1(c): the original eight slots are insufficient.", console_text, fixed = TRUE),
-    grepl(paste("The first valid timetable uses", validation_csv$initial_time_periods_required,
-                "time periods over", max(initial_csv$day), "days."), console_text, fixed = TRUE),
-    grepl(paste("Trying fewer days first gives", validation_csv$updated_days_required,
-                "days for this updated timetable."), console_text, fixed = TRUE)
+    grepl("Restriction: Courses sharing students must use different periods.", console_text, fixed = TRUE),
+    grepl("Restriction: Courses sharing students must use different days.", console_text, fixed = TRUE),
+    grepl("Consecutive days are allowed.", console_text, fixed = TRUE),
+    grepl("Original 2-day limit: insufficient", console_text, fixed = TRUE),
+    grepl(paste("Result:", nrow(initial_csv), "courses |", validation_csv$initial_time_periods_required,
+                "periods |", max(initial_csv$day), "days"), console_text, fixed = TRUE),
+    grepl(paste("Result:", nrow(updated_csv), "courses |", validation_csv$updated_days_required,
+                "days"), console_text, fixed = TRUE),
+    !grepl("Checks:|Concurrent clashes:|Capacity violations:|The search tries|Slot numbering continues",
+           paste(console[seq.int(section_starts[[1L]], length(console))], collapse = "\n"))
   )
 
   expect_error <- function(expression, wording) {
