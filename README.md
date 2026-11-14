@@ -17,7 +17,7 @@ Install R. Open `CPC351-Assignment-1.Rproj` in RStudio, or run from the reposito
 Rscript assignment_files/run_assignment.R
 ```
 
-The runner processes both questions. Q1 writes cleaned lists, the conflict matrix, an initial timetable, and an updated no-back-to-back timetable to `outputs/q1/`. The original eight slots share four time periods over two days. The supplied data needs five time periods over three days for Q1(c), and five days for Q1(d). The console explains both schedules; exams on consecutive days are allowed.
+The runner processes both questions. Q1 writes cleaned lists, the conflict matrix, an initial timetable, and an updated no-back-to-back timetable to `outputs/q1/`. The original eight slots share four time periods over two days. The supplied data needs five time periods over three days for Q1(c), and five days for Q1(d). The console shows both schedules with their restrictions; exams on consecutive days are allowed.
 
 Q1 also runs an optional model that lets compatible courses share a room and lets a course split across both rooms in the same period. Its room tables and individual student allocations go to `outputs/q1/shared_rooms/`. On the supplied data it saves one room booking, while keeping the same five-period/five-day limits. The original timetable remains available for comparison.
 
