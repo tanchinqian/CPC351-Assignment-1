@@ -15,7 +15,7 @@ build_q1_conflict_matrix <- function(courses) {
   conflict <- outer(course_names, course_names, Vectorize(overlap))
   dimnames(conflict) <- list(course_names, course_names)
   storage.mode(conflict) <- "integer"
-
+  
   sizes <- lengths(courses)
   if (!isSymmetric(conflict) || !identical(as.integer(diag(conflict)), as.integer(sizes))) {
     stop("Conflict matrix validation failed.", call. = FALSE)
@@ -32,7 +32,7 @@ write_q1_conflict_outputs <- function(conflict_matrix, project_root) {
     file.path(output_dir, "conflict_matrix.csv"),
     row.names = FALSE
   )
-
+  
   upper <- upper.tri(conflict_matrix)
   locations <- which(upper, arr.ind = TRUE)
   summary <- data.frame(
@@ -47,6 +47,28 @@ write_q1_conflict_outputs <- function(conflict_matrix, project_root) {
   invisible(summary)
 }
 
+# Diagnostics for the report (not used by the pipeline) ====
+
+check_q1_conflict_matrix <- function(courses, conflict_matrix) {
+  # M = student x course table of 0/1 (1 = student is registered in that course)
+  students <- sort(unique(unlist(courses)))
+  M <- sapply(courses, function(ids) as.integer(students %in% ids))
+  rownames(M) <- students
+  
+  # Second method: t(M) %*% M gives every pairwise overlap at once
+  if (!all(conflict_matrix == t(M) %*% M)) {
+    stop("Incidence-matrix check does not match the conflict matrix.", call. = FALSE)
+  }
+  sizes <- lengths(courses)[rownames(conflict_matrix)]
+  upper <- upper.tri(conflict_matrix)       # TRUE above the diagonal (each pair once)
+  if (any(conflict_matrix[upper] > outer(sizes, sizes, pmin)[upper])) {
+    stop("An overlap is larger than the smaller course.", call. = FALSE)
+  }
+  list(incidence = M,
+       distinct_students = nrow(M),
+       courses_per_student = table(courses_taken = rowSums(M)))
+}
+
 if (sys.nframe() == 0L) {
   root <- q1_find_project_root()
   clean_path <- file.path(root, "outputs", "q1", "courses_clean.rds")
@@ -57,7 +79,20 @@ if (sys.nframe() == 0L) {
   courses <- readRDS(clean_path)
   conflict_matrix <- build_q1_conflict_matrix(courses)
   pair_summary <- write_q1_conflict_outputs(conflict_matrix, root)
+  cat("\nConflict matrix (students shared by each pair of courses; diagonal = course size):\n")
   print(conflict_matrix)
+  cat("\nAll 15 course pairs, most shared students first:\n")
   print(pair_summary, row.names = FALSE)
   message("Q1(b): conflict matrix written to outputs/q1/conflict_matrix.csv.")
+  
+  check <- check_q1_conflict_matrix(courses, conflict_matrix)
+  cat("\nDistinct students across all courses:\n")
+  print(check$distinct_students)        # distinct students across all courses
+  cat("\nTotal registrations (a student in two courses counts twice):\n")
+  print(sum(lengths(courses)))          # total registrations
+  cat("\nNumber of students taking 1, 2, 3, ... courses:\n")
+  print(as.data.frame(check$courses_per_student, responseName = "students"))      # students taking 1, 2, 3, ... courses
+  cat("\nCourse pairs with no shared students (can share a time period):\n")
+  print(pair_summary[pair_summary$shared_students == 0, ], row.names = FALSE)  # pairs with no clash
+  message("Q1(b): second-method check passed.")
 }
