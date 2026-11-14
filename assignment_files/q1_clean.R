@@ -64,10 +64,10 @@ clean_q1_registrations <- function(registrations) {
       !setequal(names(registrations), q1_expected_courses)) {
     stop("registrations must be a named list containing the six Q1 courses.", call. = FALSE)
   }
-
+  
   cleaned <- setNames(vector("list", length(q1_expected_courses)), q1_expected_courses)
   audit_rows <- vector("list", length(q1_expected_courses))
-
+  
   for (i in seq_along(q1_expected_courses)) {
     course <- q1_expected_courses[[i]]
     values <- registrations[[course]]
@@ -76,7 +76,7 @@ clean_q1_registrations <- function(registrations) {
     duplicate[!normalized$valid] <- FALSE
     ids <- normalized$clean[normalized$valid & !duplicate]
     cleaned[[course]] <- sort(ids)
-
+    
     audit_rows[[i]] <- data.frame(
       course = course,
       raw_rows = length(values),
@@ -90,7 +90,7 @@ clean_q1_registrations <- function(registrations) {
       stringsAsFactors = FALSE
     )
   }
-
+  
   audit <- do.call(rbind, audit_rows)
   rownames(audit) <- NULL
   list(courses = cleaned, audit = audit)
@@ -120,9 +120,106 @@ run_q1_cleaning <- function(project_root = q1_find_project_root()) {
   result
 }
 
+# Diagnostics for the report (not used by the pipeline) ====
+# These functions inspect the raw lists and draw the report figures.
+# They run only when this file is run on its own, never from run_assignment.R.
+
+build_q1_inspection_table <- function(registrations) {
+  split_id <- function(x, course) {
+    x <- trimws(x)
+    data.frame(
+      course    = course,
+      raw       = x,
+      prefix    = sub("\\d.*$", "", x),        # everything before the first digit
+      digits    = gsub("\\D", "", x),          # digits only
+      digit_len = nchar(gsub("\\D", "", x)),
+      stringsAsFactors = FALSE
+    )
+  }
+  parts <- do.call(rbind, Map(split_id, registrations, names(registrations)))
+  rownames(parts) <- NULL
+  parts$id_num    <- suppressWarnings(as.integer(parts$digits))
+  parts$clean     <- normalize_q1_student_ids(parts$raw)$clean      # same rule as the pipeline
+  parts$changed   <- parts$raw != parts$clean                       # TRUE = text rewritten
+  parts$duplicate <- duplicated(parts[, c("course", "clean")])      # repeated ID in a course
+  parts
+}
+
+# Draw a plot on screen and also save it as a PNG for the report
+save_q1_plot <- function(filename, draw, output_dir) {
+  draw()
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  grDevices::png(file.path(output_dir, filename), width = 900, height = 650)
+  draw()
+  invisible(grDevices::dev.off())
+}
+
+plot_q1_id_range <- function(inspection, output_dir) {
+  save_q1_plot("q1_id_range_boxplot.png", function() {
+    graphics::boxplot(id_num ~ course, data = inspection,
+                      main = "Student ID number by course (range check)",
+                      xlab = "Course", ylab = "ID number")
+  }, output_dir)
+  save_q1_plot("q1_id_range_stripchart.png", function() {
+    graphics::stripchart(id_num ~ course, data = inspection, method = "jitter",
+                         vertical = TRUE, pch = 16, col = grDevices::rgb(0, 0, 0, 0.4),
+                         main = "Every student ID by course", ylab = "ID number")
+  }, output_dir)
+  invisible(NULL)
+}
+
+plot_q1_course_sizes <- function(courses, output_dir) {
+  sizes <- lengths(courses)
+  save_q1_plot("q1_course_sizes.png", function() {
+    bp <- graphics::barplot(sizes,
+                            ylim = c(0, 80),                          # room for the 70 line
+                            main = "Students per course (after cleaning)",
+                            xlab = "Course", ylab = "Number of students",
+                            col  = ifelse(sizes <= 40, "blue", "orange"))  # blue = fits Venue 1
+    graphics::abline(h = c(40, 70), lty = 2)                          # venue capacities
+    graphics::text(x = max(bp) + 0.6, y = c(40, 70) + 2,
+                   labels = c("Venue 1 capacity (40)", "Venue 2 capacity (70)"),
+                   adj = 1, cex = 0.8)
+    graphics::text(bp, sizes + 5, labels = sizes)                     # count on each bar
+    graphics::legend("topleft", fill = c("blue", "orange"),
+                     legend = c("Fits Venue 1 or 2 (<= 40)", "Fits Venue 2 only (41-70)"),
+                     cex = 0.8, bty = "n")
+  }, output_dir)
+  invisible(NULL)
+}
+
 if (sys.nframe() == 0L) {
   root <- q1_find_project_root()
   result <- run_q1_cleaning(root)
+  
+  # Inspection and figures for the report
+  inspection <- build_q1_inspection_table(read_q1_registration_lists(root))
+  figure_dir <- file.path(root, "outputs", "q1", "figures")
+  
+  cat("\nPrefix types found in each course (before cleaning):\n")
+  print(table(inspection$prefix, inspection$course))    # prefix by course
+  cat("\nNumber of lines by digits in the ID:\n")
+  print(as.data.frame(table(digits_in_id = inspection$digit_len), responseName = "lines"))  # 2 digits = missing leading zero
+  cat("\nLines already in NAME### form (FALSE) and lines rewritten (TRUE):\n")
+  print(table(inspection$changed))                      # TRUE = text rewritten
+  duplicate_rows <- inspection$duplicate |
+    duplicated(inspection[, c("course", "clean")], fromLast = TRUE)
+  cat("\nDuplicate registrations within a course (both copies shown):\n")
+  print(inspection[duplicate_rows, c("course", "raw", "clean")])   # both copies shown
+  cat("\nLowest and highest student number found:\n")
+  print(range(inspection$id_num))                       # ID range
+  ids_all <- sort(unique(inspection$id_num))
+  cat("\nNumbers from 1 to the highest ID that appear in no course (integer(0) = none):\n")
+  print(setdiff(seq_len(max(ids_all)), ids_all))        # numbers in no course (a gap is not an error)
+  
+  if (sum(inspection$changed) != sum(result$audit$standardized_rows)) {
+    stop("Inspection table disagrees with the cleaning audit.", call. = FALSE)
+  }
+  plot_q1_id_range(inspection, figure_dir)
+  plot_q1_course_sizes(result$courses, figure_dir)
+  message("Q1(a): figures written to outputs/q1/figures/.")
+  
+  cat("\nCleaning audit by course:\n")
   print(result$audit, row.names = FALSE)
   message("Q1(a): cleaned registration lists written to outputs/q1/cleaned_lists/.")
 }
