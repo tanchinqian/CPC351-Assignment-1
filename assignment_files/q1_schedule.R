@@ -276,33 +276,49 @@ generate_q1_timetable <- function(courses, conflict_matrix) {
        original_eight_slots_sufficient = initial_timetable$minimum_sessions <= 4L)
 }
 
-print_q1_timetables <- function(schedule_result) {
-  cat("\nQ1(c): timetable with no concurrent shared-student exams:\n")
-  cat("Each period has Venue 1 (40 seats) and Venue 2 (70 seats).\n")
-  cat("Slots 1/2, 3/4, 5/6 and 7/8 are pairs at the same time,\n")
-  cat("so the original eight slots provide only four time periods over two days.\n")
-  cat("A positive conflict-matrix entry means the two courses cannot share a period,\n")
-  cat("even in different venues. Each room/time slot holds only one course.\n")
-  cat("The search tries each allowed period, undoing a choice when a later course\n")
-  cat("cannot fit. It tries fewer periods first and checks conflicts and room sizes.\n")
-  cat("Q1(c): the original eight slots are",
-      if (schedule_result$original_eight_slots_sufficient) "sufficient.\n" else "insufficient.\n")
-  if (!schedule_result$original_eight_slots_sufficient) {
-    cat("No assignment in four periods satisfies those constraints.\n")
-  }
-  cat("The first valid timetable uses", schedule_result$initial_minimum_sessions,
-      "time periods over", max(schedule_result$initial_timetable$day), "days.\n")
-  cat("Slot numbering continues with four room/time slots per extra day.\n")
-  print(schedule_result$initial_timetable, row.names = FALSE)
+print_q1_period_table <- function(timetable) {
+  periods <- unique(timetable[c("day", "period")])
+  periods <- periods[order(periods$day, match(periods$period, c("Morning", "Afternoon"))), ]
+  display <- data.frame(Day = periods$day, Period = periods$period,
+                        venue_1 = "-", venue_2 = "-", stringsAsFactors = FALSE)
+  names(display) <- c("Day", "Period", "Venue 1 (40 seats)", "Venue 2 (70 seats)")
 
-  cat("\nQ1(d): updated timetable with no same-day back-to-back exams:\n")
-  cat("Morning and afternoon are the only periods in a day, so courses with\n")
-  cat("shared students must be on different days. Consecutive days are allowed.\n")
-  cat("For each course, try a day with no shared-student course already on it.\n")
-  cat("Check that its rooms fit too; undo unsuccessful choices and try another day.\n")
-  cat("Trying fewer days first gives", schedule_result$minimum_days,
-      "days for this updated timetable.\n")
-  print(schedule_result$timetable, row.names = FALSE)
+  # Put simultaneous room bookings on the same row.
+  for (i in seq_len(nrow(timetable))) {
+    period_row <- which(periods$day == timetable$day[[i]] &
+                          periods$period == timetable$period[[i]])
+    venue_column <- match(timetable$venue[[i]], c("Venue 1", "Venue 2")) + 2L
+    display[period_row, venue_column] <- sprintf("%s (%d), slot %d",
+      timetable$course[[i]], timetable$students[[i]], timetable$slot[[i]])
+  }
+  row_format <- "%-3s  %-9s  %-25s  %s\n"
+  cat(sprintf(row_format, names(display)[[1L]], names(display)[[2L]],
+              names(display)[[3L]], names(display)[[4L]]))
+  for (i in seq_len(nrow(display))) {
+    cat(sprintf(row_format, as.character(display$Day[[i]]), display$Period[[i]],
+                display[[3L]][[i]], display[[4L]][[i]]))
+  }
+  invisible(NULL)
+}
+
+print_q1_timetables <- function(schedule_result) {
+  cat("\nQ1(c): No concurrent exams for shared students\n")
+  cat("Restriction: Courses sharing students must use different periods.\n")
+  cat("Rooms: One course per room, within its seating capacity.\n")
+  cat("\nResult:", nrow(schedule_result$initial_timetable), "courses |",
+      schedule_result$initial_minimum_sessions, "periods |",
+      max(schedule_result$initial_timetable$day), "days\n")
+  cat("Original 2-day limit:",
+      if (schedule_result$original_eight_slots_sufficient) "sufficient\n\n" else "insufficient\n\n")
+  print_q1_period_table(schedule_result$initial_timetable)
+
+  cat("\nQ1(d): No back-to-back exams for shared students\n")
+  cat("Restriction: Courses sharing students must use different days.\n")
+  cat("Consecutive days are allowed.\n")
+  cat("Rooms: One course per room, within its seating capacity.\n")
+  cat("\nResult:", nrow(schedule_result$timetable), "courses |",
+      schedule_result$minimum_days, "days\n\n")
+  print_q1_period_table(schedule_result$timetable)
   invisible(NULL)
 }
 
