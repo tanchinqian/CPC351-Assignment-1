@@ -1,6 +1,6 @@
 # Q1(b): construct and export the exact shared-student conflict matrix.
 
-if (!exists("q1_find_project_root", mode = "function")) {
+if (!exists("find_q1_project_root", mode = "function")) {
   source(file.path("assignment_files", "q1_clean.R"), local = TRUE)
 }
 
@@ -9,9 +9,12 @@ build_q1_conflict_matrix <- function(courses) {
     stop("courses must be a named list of six cleaned registration vectors.", call. = FALSE)
   }
   course_names <- names(courses)
+  # Off-diagonal entries count shared students: a positive value means a clash.
+  # Comparing a course with itself gives its enrolment on the diagonal.
   overlap <- function(course_a, course_b) {
     length(intersect(courses[[course_a]], courses[[course_b]]))
   }
+  # Apply the overlap count to every row/column pair of courses.
   conflict <- outer(course_names, course_names, Vectorize(overlap))
   dimnames(conflict) <- list(course_names, course_names)
   storage.mode(conflict) <- "integer"
@@ -33,6 +36,7 @@ write_q1_conflict_outputs <- function(conflict_matrix, project_root) {
     row.names = FALSE
   )
   
+  # Use only entries above the diagonal: each distinct course pair appears once.
   upper <- upper.tri(conflict_matrix)
   locations <- which(upper, arr.ind = TRUE)
   summary <- data.frame(
@@ -70,7 +74,7 @@ check_q1_conflict_matrix <- function(courses, conflict_matrix) {
 }
 
 if (sys.nframe() == 0L) {
-  root <- q1_find_project_root()
+  root <- find_q1_project_root()
   clean_path <- file.path(root, "outputs", "q1", "courses_clean.rds")
   if (!file.exists(clean_path)) {
     stop("Run assignment_files/q1_clean.R first to create the cleaned registration lists.",
